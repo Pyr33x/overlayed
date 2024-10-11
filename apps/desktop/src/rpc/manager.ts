@@ -359,14 +359,14 @@ class SocketManager {
         version: this.version,
       });
 
-      // try to find the user
-      this.requestUserChannel();
-
-      // sub to any otifs
+      // subscribe to channel select events
       this.send({
         cmd: RPCCommand.SUBSCRIBE,
-        evt: RPCEvent.NOTIFICATION_CREATE,
+        evt: RPCEvent.VOICE_CHANNEL_SELECT,
       });
+
+      // try to find the user
+      this.requestUserChannel();
 
       this.userdataStore.setAccessTokenExpiry(payload.data.expires);
       this.store.setMe(payload.data.user);

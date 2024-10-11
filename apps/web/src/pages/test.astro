@@ -1,0 +1,100 @@
+---
+import Layout from "../layouts/Layout.astro";
+import testOgImage from "../assets/page/rpc-test.png";
+---
+
+<Layout
+  title="Overlayed Connection Test"
+  description="Test connecting to Discord's RPC Server using WebSockets"
+  ogImage={testOgImage.src}
+>
+  <main class="main-content prose prose-invert px-8 pt-28">
+    <div>
+      <h1>Overlayed Connection Test</h1>
+
+      <h3>Overlayed</h3>
+      <div id="overlayed">⌛ Connecting to Discord...</div>
+
+      <div id="streamkit-wrapper" class="hidden">
+        <h3>Streamkit</h3>
+        <div id="streamkit">connecting...</div>
+      </div>
+
+      <pre id="socket-log" class="hidden"></pre>
+    </div>
+  </main>
+
+  <style>
+    /* TODO: move this to a shared layout?*/
+    .main-content {
+      margin: auto;
+      width: 800px;
+      max-width: calc(100% - 2rem);
+    }
+  </style>
+
+  <script>
+    const connectionMap: Record<string, boolean> = {};
+    const overlayedDiv = document.getElementById("overlayed")!;
+    const streamkitWrapperDiv = document.getElementById("streamkit-wrapper")!;
+    const streamkitDiv = document.getElementById("streamkit")!;
+
+    const MAX_TIMEOUT_MS = 100_000;
+
+    function connectToDiscord(
+      label: string,
+      url: string,
+      domNode: HTMLElement,
+    ) {
+      const socket = new WebSocket(url);
+
+      const timeoutId = setTimeout(() => {
+        if (!connectionMap[label]) {
+          domNode.innerHTML = "❌ Failed to connect to Discord";
+        }
+      }, MAX_TIMEOUT_MS);
+
+      socket.addEventListener("open", () => {
+        console.log(`[${label}] Connected to ws server`);
+        domNode.innerHTML = "🌎 Connected to Discord";
+        console.time(label);
+      });
+
+      socket.addEventListener("message", (event) => {
+        const payload = JSON.parse(event.data);
+        console.log(`[${label}]`, payload);
+
+        if (payload.evt === "READY") {
+          domNode.innerHTML = "✅ Received Discord READY Event";
+          clearTimeout(timeoutId);
+          connectionMap[label] = true;
+          console.timeEnd(label);
+        }
+      });
+
+      socket.addEventListener("close", (err) => {
+        console.log(`[${label}] close server`, err);
+      });
+
+      socket.addEventListener("error", (err) => {
+        console.log(`[${label}] err`, err);
+      });
+    }
+
+    connectToDiscord(
+      "overlayed",
+      "ws://127.0.0.1:6463?v=1&encoding=json&client_id=905987126099836938",
+      overlayedDiv,
+    );
+
+    console.log("window.location.origin", window.location.origin);
+    if (window.location.origin === "http://localhost:3000") {
+      streamkitWrapperDiv.classList.remove("hidden");
+      connectToDiscord(
+        "streamkit",
+        "ws://127.0.0.1:6463?v=1&encoding=json&client_id=207646673902501888",
+        streamkitDiv,
+      );
+    }
+  </script>
+</Layout>

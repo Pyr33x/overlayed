@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { Readable } from "node:stream"
 import fs from "fs";
 import path from "path";
 
@@ -31,47 +32,58 @@ export const script = async ({ github, context }, channel) => {
 
 /** @param {import('@types/github-script').AsyncFunctionArguments} AsyncFunctionArguments */
 async function uploadStableArtifacts({ github, context }) {
-  console.log(`[${context.ref}] Fetching release...`);
+  const tag = context.ref.replace("refs/tags/", "");
+  console.log(`[${tag}] Fetching release...`);
   const release = await github.rest.repos.getReleaseByTag({
     owner: context.repo.owner,
     repo: context.repo.repo,
-    tag: context.ref,
+    tag
   });
 
   const artifacts = release.data.assets;
 
-  console.log(`[${context.ref}] Found ${artifacts.length} artifacts in the release`);
+  console.log(`[${tag}] Found ${artifacts.length} artifacts in the release`);
 
-  const releaseBinDir = path.join(ASSET_DIR, "stable", context.ref);
+  const releaseBinDir = path.join(ASSET_DIR, "stable", tag);
 
   // make the dir for version
   fs.mkdirSync(releaseBinDir, { recursive: true });
 
   // download all the artifacts from the build
   for (const artifact of artifacts) {
-    console.log(`[${context.ref}] Downloading stable artifact ${artifact.name}`);
-    fetch(artifact.browser_download_url)
-      .then(res => res.arrayBuffer())
-      .then(data => {
-        fs.writeFileSync(path.join(releaseBinDir, `${artifact.name}`), Buffer.from(data));
-      });
+    console.log(`[${tag}] Downloading stable artifact ${artifact.name}`);
+    const response = await fetch(artifact.browser_download_url)
+    const stream = Readable.fromWeb(response.body)
+
+    console.log(`[${tag}] Writing stable artifact ${artifact.name}`);
+    const filePath = path.join(releaseBinDir, artifact.name);
+    const fileStream = fs.createWriteStream(filePath);
+    await new Promise((resolve, reject) => {
+      stream.pipe(fileStream);
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
   }
 
   try {
     // upload to r2
-    for (const file of fs.readdirSync(releaseBinDir)) {
+    console.log(`[${tag}] Starting upload to R2...`);
+    const assetDirectory = await fs.promises.readdir(releaseBinDir);
+
+    for (const file of assetDirectory) {
       const assetFilePath = path.join(releaseBinDir, file);
       const fileStream = fs.createReadStream(assetFilePath);
 
       const uploadBinsCommand = new PutObjectCommand({
         Bucket: R2_BUCKET,
-        Key: `stable/${context.ref}/${file}`,
+        Key: `stable/${tag}/${file}`,
         Body: fileStream,
       });
 
+      console.log(`[${tag}] ${file} starting upload...`);
       await client.send(uploadBinsCommand);
 
-      console.log(`[${context.ref}] ${file} uploaded successfully`);
+      console.log(`[${tag}] ${file} uploaded successfully`);
     }
 
   } catch (err) {
@@ -113,7 +125,7 @@ async function uploadCanaryArtifacts({ github, context }) {
 
       const uploadBinsCommand = new PutObjectCommand({
         Bucket: R2_BUCKET,
-        Key: `canary/${file}`,
+        Key: `canary/${file}.zip`,
         Body: fileStream,
       });
 
